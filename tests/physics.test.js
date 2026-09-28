@@ -2,11 +2,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const p = require('../physics');
 const s = require('../state');
-const near = (actual, expected, tolerance) => assert.ok(Math.abs(actual - expected) / expected < tolerance, `${actual} ≈ ${expected}`);
+const near = (actual, expected, tolerance) => assert.ok(Math.abs(actual - expected) / Math.abs(expected) < tolerance, `${actual} ≈ ${expected}`);
 
 test('J0056 catalogue yields expected derived scales', () => {
   const P = 0.472036662076, Pdot = 3.32849e-15;
   near(p.frequency(P), 2.118, .001);
+  near(p.periodFromFrequency(p.frequency(P)), P, 1e-12);
+  near(p.frequencyDerivative(P, Pdot), -Pdot/P**2, 1e-12);
   near(p.characteristicAge(P, Pdot), 2.25e6, .01);
   near(p.surfaceDipoleField(P, Pdot), 1.27e12, .01);
   near(p.spinDownLuminosity(P, Pdot), 1.25e33, .02);
