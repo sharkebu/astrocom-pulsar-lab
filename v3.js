@@ -37,16 +37,15 @@
   function navigate(){
     const route=AstroRouter.parse(location.hash,catalogue);routeState=route;
     $('landing-shell').hidden=route.mode!=='landing';$('explore-shell').hidden=route.mode!=='explore';$('lab-shell').hidden=route.mode!=='lab';
+    if(route.mode!=='lab')AstroLabPages.leave();
     for(const section of document.querySelectorAll('.explore-view'))section.hidden=route.mode!=='explore'||section.id!==`explore-${route.page}`;
     lab.activeExplore=route.mode==='explore'&&['beam','rotation'].includes(route.page)?route.page:null;
     if(route.mode==='explore'&&route.page==='beam'&&!beamStarted){beamStarted=true;LabState.setExperiment(lab.state,'zeta',70);lab.sync();}
     if(route.mode==='lab'){
-      if(route.object&&selected().name!==route.object.name)lab.selectObject(route.object);
+      if(route.object){LabState.select(lab.state,route.object);$('pulsar-select').value=route.object.name;}
       for(const [key,value] of Object.entries(AstroRouter.readExperiment(route.query)))LabState.setExperiment(lab.state,key,value);
-      lab.state.tab=route.page==='observations'?'signal':route.page==='propagation'?'dispersion':route.page;
-      const page=document.getElementById(`page-${lab.state.tab}`);
-      document.querySelectorAll('#lab-shell .tab-page').forEach(p=>p.hidden=p!==page);
-      document.querySelectorAll('#lab-shell [data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===lab.state.tab));
+      Object.assign(lab.state.observation,AstroRouter.readObservation(route.query));
+      AstroLabPages.navigate(route);
       lab.sync();
     }
     if(route.mode==='explore'){syncExplore();requestAnimationFrame(()=>{if(route.page==='beam'){lab.drawStage('explore-star',false);lab.drawSignal('explore-trace',true);}if(route.page==='rotation')lab.drawStage('rotation-star',false);if(route.page==='dispersion')lab.drawWaterfall('explore-waterfall');});}
@@ -81,7 +80,8 @@
   $('compare-reveal').addEventListener('click',()=>{const objects=[...comparison].map(name=>catalogue.find(o=>o.name===name)),fastest=objects.toSorted((a,b)=>Number(a.period)-Number(b.period))[0];$('explore-compare-result').innerHTML=`<p>En hızlısı ${shortName(fastest)}: ${fmt(Physics.frequency(Number(fastest.period)),2)} tur/sn. ${$('compare-prediction').value===fastest.name?'Tahminin doğru.':'Tahmininle karşılaştır.'}</p><table><thead><tr><th>Pulsar</th><th>Bir tur</th><th>Tur/sn</th><th>Yavaşlama</th></tr></thead><tbody>${objects.map(o=>`<tr><td>${shortName(o)}</td><td>${fmt(Number(o.period),6)} s</td><td>${fmt(Physics.frequency(Number(o.period)),2)}</td><td>${o.period_dot===null?'Veri yok':Number(o.period_dot).toExponential(2)+' s/s'}</td></tr>`).join('')}</tbody></table><p>Bu değerler katalog kayıtlarından gelir. Neden farklı olduklarını LAB haritasında inceleyebilirsin.</p>`;$('explore-compare-result').hidden=false;});
   syncCompareChoices();
 
-  window.AstroV3={refresh:()=>{syncExplore();},route:()=>routeState};
+  AstroLabPages.init();
+  window.AstroV3={refresh:()=>{syncExplore();AstroLabPages.refresh();},route:()=>routeState};
   window.addEventListener('hashchange',navigate);
   navigate();
 })();

@@ -11,6 +11,8 @@ const Physics = (() => {
   const clamp = (x) => Math.max(-1, Math.min(1, x));
   const validAngle = (a) => Number.isFinite(a) && a >= 0 && a <= 180;
   function frequency(P) { return valid(P) ? 1 / P : null; }
+  function periodFromFrequency(nu) { return valid(nu) ? 1 / nu : null; }
+  function frequencyDerivative(P, Pdot) { return valid(P) && valid(Pdot) ? -Pdot / P ** 2 : null; }
   function characteristicAge(P, Pdot) { return valid(P) && valid(Pdot) ? P / (2 * Pdot) / YEAR : null; }
   function surfaceDipoleField(P, Pdot) { return valid(P) && valid(Pdot) ? 3.2e19 * Math.sqrt(P * Pdot) : null; }
   function spinDownLuminosity(P, Pdot) { return valid(P) && valid(Pdot) ? 4 * Math.PI ** 2 * I * Pdot / P ** 3 : null; }
@@ -40,9 +42,9 @@ const Physics = (() => {
     return DISPERSION_K * dm * (lowMHz ** -2 - highMHz ** -2); // milliseconds
   }
   function derived(P, Pdot) {
-    return { frequency: frequency(P), ageYears: characteristicAge(P, Pdot), fieldGauss: surfaceDipoleField(P, Pdot), edotErgS: spinDownLuminosity(P, Pdot), lightCylinderKm: lightCylinderRadius(P) };
+    return { frequency: frequency(P), frequencyDot: frequencyDerivative(P, Pdot), ageYears: characteristicAge(P, Pdot), fieldGauss: surfaceDipoleField(P, Pdot), edotErgS: spinDownLuminosity(P, Pdot), lightCylinderKm: lightCylinderRadius(P) };
   }
-  return { frequency, characteristicAge, surfaceDipoleField, spinDownLuminosity,
+  return { frequency, periodFromFrequency, frequencyDerivative, characteristicAge, surfaceDipoleField, spinDownLuminosity,
     lightCylinderRadius, observerMagneticAngle, beamSeparation, isBeamVisible,
     beamResponse, dispersionDelay, derived, constants: { YEAR, C, I, DISPERSION_K } };
 })();

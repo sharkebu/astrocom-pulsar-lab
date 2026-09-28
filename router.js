@@ -21,7 +21,8 @@ const AstroRouter = (() => {
   function experimentHash(name,page,experiment={},observation={}) {
     const q = new URLSearchParams();
     for (const [key,value] of Object.entries(experiment)) if(Number.isFinite(value)) q.set(key,String(value));
-    for (const key of ['centreMHz','bandwidthMHz','channels']) if(Number.isFinite(observation[key])) q.set(key,String(observation[key]));
+    for (const key of ['centreMHz','bandwidthMHz','channels','samplingMs']) if(Number.isFinite(observation[key])) q.set(key,String(observation[key]));
+    if(['raw','dispersed','dedispersed'].includes(observation.view))q.set('view',observation.view);
     if(observation.dedispersed)q.set('dedispersed','1');
     const suffix=q.toString();return objectPath(name,page)+(suffix?`?${suffix}`:'');
   }
@@ -34,6 +35,21 @@ const AstroRouter = (() => {
     }
     return output;
   }
-  return {parse,objectPath,experimentHash,compareHash,readExperiment,idOf};
+  function readObservation(query) {
+    const output={};
+    for(const [key,min,max] of [['centreMHz',30,10000],['bandwidthMHz',1,1000],['channels',4,128],['samplingMs',0.01,100]]){
+      const value=query.get(key),n=Number(value);
+      if(value!==null&&Number.isFinite(n)&&n>=min&&n<=max)output[key]=n;
+    }
+    if(query.get('dedispersed')==='1')output.dedispersed=true;
+    if(['raw','dispersed','dedispersed'].includes(query.get('view')))output.view=query.get('view');
+    return output;
+  }
+  function readComparison(query,catalogue) {
+    const ids=(query.get('objects')||'').split(',').map(decodeURIComponent);
+    const names=ids.map(id=>catalogue.find(p=>idOf(p.name)===id||p.name===id)?.name).filter(Boolean);
+    return names.length>=2&&names.length<=4&&new Set(names).size===names.length?names:null;
+  }
+  return {parse,objectPath,experimentHash,compareHash,readExperiment,readObservation,readComparison,idOf};
 })();
 if(typeof module!=='undefined')module.exports=AstroRouter;

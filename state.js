@@ -1,7 +1,6 @@
 /* Catalogue objects stay immutable; experiment overrides are stored separately. */
 const LabState = (() => {
-  // Historical glitch data are not bundled in V2; keep that view unavailable.
-  const FEATURES = Object.freeze({ glitchLab: false });
+  const FEATURES = Object.freeze({ glitchLab: true });
   const DEFAULT_GEOMETRY = Object.freeze({ alpha: 42, zeta: 48, rho: 12 });
   const allowed = new Set(["period", "period_dot", "dm", "alpha", "zeta", "rho"]);
   function create(catalogue) {
@@ -11,7 +10,7 @@ const LabState = (() => {
       experiment: {},
       model: { ...DEFAULT_GEOMETRY },
       playback: { cycles: 0, speed: 1, running: true },
-      observation: { centreMHz: 400, bandwidthMHz: 100, channels: 24, dedispersed: false },
+      observation: { centreMHz: 400, bandwidthMHz: 100, channels: 24, samplingMs: 1, view: 'dispersed', dedispersed: false },
       signalView: "model",
       tab: "geometry",
     };
@@ -37,6 +36,7 @@ const LabState = (() => {
     state.model = { ...DEFAULT_GEOMETRY };
     state.playback.cycles = 0;
     state.observation.dedispersed = false;
+    state.observation.view = 'dispersed';
   }
   function select(state, catalogue) {
     state.catalogue = catalogue;
