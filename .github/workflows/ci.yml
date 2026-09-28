@@ -1,0 +1,26 @@
+name: Scientific build
+on:
+  push:
+    branches: [main, dev, 'feature/**']
+  pull_request:
+    branches: [main, dev]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: JavaScript syntax
+        run: |
+          for file in physics.js state.js router.js exports.js app.js v3.js v3-lab.js; do node --check "$file"; done
+      - name: Scientific and routing tests
+        run: node --test tests/*.test.js
+      - name: Build one-file app
+        run: python build.py
+      - name: Committed build is current
+        run: git diff --exit-code -- dist/index.html
