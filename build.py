@@ -1,14 +1,18 @@
-"""Embed app.js in dist/index.html so the deliverable opens as one offline file."""
-
+"""Build the dependency-free, offline-capable single HTML file."""
 from pathlib import Path
-import re
-
 
 ROOT = Path(__file__).resolve().parent
-page = ROOT / "dist" / "index.html"
-script = (ROOT / "app.js").read_text(encoding="utf-8")
-html = page.read_text(encoding="utf-8")
-updated, count = re.subn(r"(?s)<script>.*?</script>", lambda _: f"<script>\n{script}\n</script>", html, count=1)
-if count != 1:
-    raise SystemExit("Could not find the inline application script.")
-page.write_text(updated, encoding="utf-8")
+html = (ROOT / "index.template.html").read_text(encoding="utf-8")
+replacements = {
+    "/* STYLE */": (ROOT / "style.css").read_text(encoding="utf-8"),
+    "/* DATA */": "const CATALOGUE = " + (ROOT / "data/pulsars.json").read_text(encoding="utf-8") + ";\nconst POPULATION = " + (ROOT / "data/population.json").read_text(encoding="utf-8") + ";",
+    "/* PHYSICS */": (ROOT / "physics.js").read_text(encoding="utf-8"),
+    "/* STATE */": (ROOT / "state.js").read_text(encoding="utf-8"),
+    "/* APP */": (ROOT / "app.js").read_text(encoding="utf-8"),
+}
+for marker, content in replacements.items():
+    assert html.count(marker) == 1, marker
+    html = html.replace(marker, content)
+(ROOT / "dist").mkdir(exist_ok=True)
+(ROOT / "dist/index.html").write_text(html, encoding="utf-8")
+print(f"Built dist/index.html ({len(html.encode('utf-8')):,} bytes)")

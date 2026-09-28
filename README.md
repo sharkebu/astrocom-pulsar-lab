@@ -1,19 +1,19 @@
-# Pulsar Laboratuvarı
+# AstroCom · Pulsar Laboratuvarı V2
 
-PSR J0056+4756 için tek sayfalık, çevrimdışı da açılabilen etkileşimli simülasyon.
+Tek sayfalık, kurulum gerektirmeyen pulsar laboratuvarı. [Canlı site](https://pulsar-laboratuvari-kardelen.kardelendemir25.chatgpt.site/) linke sahip herkesçe açılır. `dist/index.html` tek dosya olarak çevrimdışı da çalışır.
 
 ## Kullanım
 
-- `dist/index.html` dosyasını doğrudan tarayıcıda açın. Tek dosyadır; ağ veya kurulum gerekmez.
-- Periyodu kaydırıcıyla veya hassas sayı alanıyla değiştirin. Dönme hızı ve atım treni aynı faz hesabından beslenir.
-- Manyetik eğim `α`, bakış açısı `ζ` ve ışın açıklığı `ρ` geometriyi değiştirir. Işın görüş hattını kesmezse atım görünmez.
-- `Ṗ` değişince dipol alanı ve karakteristik yaş yeniden hesaplanır. Uzaklık ayrı bir DM model tahminidir.
-- `build.py`, `app.js` içeriğini HTML içine yeniden gömer; uygulama kodunu değiştirdikten sonra `python build.py` çalıştırın.
+Üstten pulsar seçin. **KATALOG** özgün kayıt değerlerini gösterir; açıların model varsayımı olduğunu ayrıca işaretler. P, Ṗ, DM ya da α/ζ/ρ değişirse **DENEY** açılır ve katalog nesnesi değişmeden kalır. **Katalog değerlerini geri yükle** bütün deney değişikliklerini siler.
 
-## Veri ve sınırlar
+- **Geometri:** Ω, μ, manyetik kutuplar ve gözlemci görüş hattı; aynı faz hesabından üretilen atım treni. Gösterim hızı fiziksel P değerinden bağımsızdır. Hareket azaltma ayarında başlangıçta durur; `+15°` ile elle ilerletilebilir.
+- **Sinyal:** Geometrik model profili ve gerçek gözlem için dürüst boş durum. Gerçek teleskop profili henüz eklenmedi.
+- **P–Ṗ:** 2.855 katalog noktasının logaritmik haritası. Deneyde P/Ṗ değişirse özgün ve deneysel konum birlikte gösterilir.
+- **Yayılım:** Katalog DM'si ve seçilen frekans/bant/kanalla sentetik waterfall; dedispersiyon kanalları hizalar.
+- **Görevler:** Önce tahmin yazdıran beş kısa fizik deneyi.
 
-Başlangıç kaydı: PSR J0056+4756 (B0053+47). Statik katalog örneğinde `P = 0,472037 s`, `Ṗ ≈ 3,3284924 × 10⁻¹⁵ s/s`, `DM = 18,1354 pc cm⁻³` ve `d = 1,123 kpc` kullanılır. `d` elektron yoğunluğu modelinden türetilmiş bir tahmindir. α, ζ ve ρ ölçüm olarak sunulmaz; başlangıçta sırasıyla 42°, 43° ve 12° seçilir.
+## Geliştirme
 
-Gösterilen frekans `f = 1/P`; karakteristik yaş `τ = P/(2Ṗ)`; yüzey dipol alanı `B = 3,2 × 10¹⁹ √(PṖ) G` formülleriyle hesaplanır. Bu son iki değer model varsayımlarına bağlıdır. Yıldız, ışın konisi ve ışık eğrisi temsili bir görselleştirmedir; gerçek teleskop ışık eğrisi veya fiziksel ölçekte bir görüntü değildir. “Gerçek zaman”, seçilen dönme periyodunun saat zamanına 1:1 uygulanması anlamındadır.
+Çalışma zamanı bağımlılığı yoktur. `index.template.html`, `style.css`, `app.js`, `state.js`, `physics.js` ve `data/*.json` kaynak dosyalardır. `python build.py` bunları `dist/index.html` içine gömer. `node --test tests/*.test.js` fizik ve durum testlerini çalıştırır. Geliştirme önizlemesi için `python -m http.server 8765 --directory dist` yeterlidir.
 
-Kaynaklar: [ATNF Pulsar Catalogue](https://www.atnf.csiro.au/research/pulsar/psrcat/), [ATNF parametre ve uzaklık açıklamaları](https://www.atnf.csiro.au/research/pulsar/psrcat/psrcat_help.html), [NASA HEASARC katalog açıklaması](https://heasarc.gsfc.nasa.gov/W3Browse/all/atnfpulsar.html).
+Veri kökeni, güncelleme yolu ve atıf koşulları için [SOURCES.md](SOURCES.md) dosyasına bakın. Katalog anlık kopyası 28 Eylül 2026 tarihlidir. Bu uygulama gerçek gözlem profilini veya α/ζ/ρ ölçümünü taklit etmez.

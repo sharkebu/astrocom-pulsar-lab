@@ -1,365 +1,191 @@
 (() => {
-  "use strict";
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2, RAD = Math.PI / 180, OBS_AZ = .6;
+  const catalogue = CATALOGUE.map(row => Object.freeze(row));
+  const state = LabState.create(catalogue[0]);
+  state.playback.running = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const name = item => item.alt_name && item.name === 'PSR J0332+5434' ? 'PSR B0329+54' : item.name;
+  const nf = (n, max=3) => Number.isFinite(n) ? new Intl.NumberFormat('tr-TR',{maximumFractionDigits:max}).format(n) : 'Veri yok';
+  const sci = n => Number.isFinite(n) ? n.toExponential(3).replace('e+','e') : 'Veri yok';
+  const raw = v => v === null || v === undefined || v === '' ? 'Veri yok' : String(v);
+  const esc = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const val = key => LabState.current(state,key);
+  const num = key => Number(val(key));
+  const phase = cycles => TAU * cycles - OBS_AZ;
+  const visible = () => Physics.isBeamVisible(num('alpha'), num('zeta'), num('rho'));
+  const response = cycles => Physics.beamResponse(num('alpha'),num('zeta'),num('rho'),phase(cycles));
+  const derived = () => Physics.derived(num('period'),num('period_dot'));
+  const formatPeriod = p => Number.isFinite(p) && p>0 ? p < .1 ? `${nf(p*1000,5)} ms` : `${nf(p,9)} s` : 'Veri yok';
 
-  // Catalog values: ATNF PSR J0056+4756. Geometry below is an adjustable model.
-  const CATALOG = Object.freeze({
-    periodMs: 472.037,
-    pdotE15: 3.3284924,
-    distanceKpc: 1.123,
-    alpha: 42,
-    zeta: 43,
-    rho: 12,
-  });
-  const limits = {
-    periodMs: [20, 2000], pdotE15: [0.001, 100], distanceKpc: [0.01, 30],
-    alpha: [0, 90], zeta: [0, 180], rho: [3, 35],
-  };
-  const model = { ...CATALOG, cycles: 0, running: !matchMedia("(prefers-reduced-motion: reduce)").matches };
-  const $ = (id) => document.getElementById(id);
-  const deg = Math.PI / 180;
-  const TAU = Math.PI * 2;
-  const nfmt = (value, digits = 3) => new Intl.NumberFormat("tr-TR", {
-    minimumFractionDigits: digits, maximumFractionDigits: digits,
-  }).format(value);
-  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-
-  // A small precise input keeps the catalog's fractional millisecond value intact.
-  $("period").insertAdjacentHTML("afterend", `
-    <div class="precise-row"><span>Hassas değer</span>
-      <div><input id="period-number" aria-label="Periyot, milisaniye" type="number" min="20" max="2000" step="0.001" value="472.037"><span>ms</span></div>
-    </div>`);
-  document.querySelector(".stage-footer").insertAdjacentHTML("afterend", `
-    <div class="quick-period"><label for="quick-period">Periyodu değiştir <output id="quick-period-value">472,037 ms</output></label>
-      <input id="quick-period" type="range" min="20" max="2000" step="1" value="472" aria-label="Periyodu değiştir">
-    </div>`);
-  document.querySelector(".controls-actions").insertAdjacentHTML("beforebegin", `
-    <div class="control numeric-control"><label for="pdot-number">Periyot türevi Ṗ <span class="model-tag" id="pdot-tag">KATALOG</span></label>
-      <div class="numeric-field"><input id="pdot-number" type="number" min="0.001" max="100" step="0.001" value="3.3284924"><span>× 10⁻¹⁵ s/s</span></div>
-    </div>
-    <div class="control numeric-control"><label for="distance-number">Uzaklık <span class="model-tag" id="distance-tag">DM TAHMİNİ</span></label>
-      <div class="numeric-field"><input id="distance-number" type="number" min="0.01" max="30" step="0.001" value="1.123"><span>kpc</span></div>
-    </div>
-    <div class="geometry-note">α, ζ ve ρ katalogda ölçülmüş değerler değil; ışının gözlemciye göre yönünü kuran model açılardır.</div>`);
-  document.querySelector(".stat-grid").insertAdjacentHTML("beforeend", `
-    <div class="stat"><span>Dağılım ölçüsü DM</span><strong>18,1354</strong><small>pc cm⁻³ · katalog değeri</small></div>
-    <div class="stat"><span>Gökyüzü konumu</span><strong>00sa 56dk</strong><small>+47° 56′ · J2000</small></div>`);
-  document.head.insertAdjacentHTML("beforeend", `<style>
-    .precise-row{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:.78rem;margin:3px 0 7px}
-    .precise-row>div,.numeric-field{display:flex;align-items:center;gap:8px}.precise-row input,.numeric-field input{color:var(--text);background:#071924;border:1px solid #3a6071;border-radius:7px;padding:6px 8px;font:500 .9rem ui-monospace,SFMono-Regular,Consolas,monospace;min-width:0}
-    .precise-row input{width:102px}.precise-row span:last-child,.numeric-field span{color:var(--muted);font-size:.75rem;white-space:nowrap}.numeric-control label{align-items:center}.numeric-field{margin-top:12px}.numeric-field input{width:130px}.model-tag{font:600 .62rem ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em;color:var(--amber);border:1px solid #70563d;border-radius:4px;padding:3px 5px}.geometry-note{padding:12px 24px;color:var(--muted);font-size:.78rem;border-top:1px solid var(--line)}
-    input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
-    .quick-period{display:none;border-top:1px solid var(--line);padding:10px 16px 12px}.quick-period label{display:flex;justify-content:space-between;font-size:.82rem;font-weight:600}.quick-period output{font:500 .84rem ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--cyan)}.quick-period input{width:100%;accent-color:var(--cyan);margin:9px 0 0}
-    @media(max-width:680px){.geometry-note{padding:12px 17px}.precise-row input{width:92px}.quick-period{display:block}.stage-wrap{height:270px}}
-  </style>`);
-
-  const stage = $("star"), stageCtx = stage.getContext("2d");
-  const trace = $("trace"), traceCtx = trace.getContext("2d");
-  const view = { stageW: 0, stageH: 0, traceW: 0, traceH: 0 };
-  function resizeCanvas(canvas, ctx, wKey, hKey) {
-    const box = canvas.getBoundingClientRect();
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.max(1, Math.round(box.width * pixelRatio));
-    canvas.height = Math.max(1, Math.round(box.height * pixelRatio));
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    view[wKey] = box.width;
-    view[hKey] = box.height;
-  }
-  const resize = () => {
-    resizeCanvas(stage, stageCtx, "stageW", "stageH");
-    resizeCanvas(trace, traceCtx, "traceW", "traceH");
-  };
-  new ResizeObserver(resize).observe(stage);
-  new ResizeObserver(resize).observe(trace);
-  resize();
-
-  // Magnetic axis rotating around spin axis. The observer is fixed at azimuth 0.6 rad.
-  const observerAzimuth = 0.6;
-  function intensityAt(cycles) {
-    const a = model.alpha * deg, z = model.zeta * deg;
-    const cosTheta = clamp(
-      Math.cos(a) * Math.cos(z) + Math.sin(a) * Math.sin(z) * Math.cos(TAU * cycles - observerAzimuth),
-      -1, 1,
-    );
-    const theta = Math.acos(cosTheta);
-    const opening = model.rho * deg;
-    const shape = (angle) => angle >= opening ? 0 : Math.cos(angle / opening * Math.PI / 2) ** 4;
-    return Math.max(shape(theta), shape(Math.PI - theta));
-  }
-  function hasPulse() {
-    return Math.min(Math.abs(model.alpha - model.zeta), Math.abs(180 - model.alpha - model.zeta)) < model.rho;
-  }
-
-  const cameraAngle = 62 * deg;
-  const camera = [Math.sin(cameraAngle), 0, Math.cos(cameraAngle)];
-  function project(v) {
-    return {
-      x: v[1],
-      y: -v[0] * Math.cos(cameraAngle) + v[2] * Math.sin(cameraAngle),
-      depth: v[0] * camera[0] + v[1] * camera[1] + v[2] * camera[2],
-    };
-  }
-  function vecFromAngles(inclination, azimuth) {
-    const a = inclination * deg;
-    return [Math.sin(a) * Math.cos(azimuth), Math.sin(a) * Math.sin(azimuth), Math.cos(a)];
-  }
-  const stars = Array.from({ length: 65 }, (_, i) => {
-    const fract = (x) => x - Math.floor(x);
-    return { x: fract(i * .61803398875 + .19), y: fract(i * .754877666 + .32), size: .5 + fract(i * .4389) * 1.1, alpha: .18 + fract(i * .367) * .4 };
-  });
-  const patches = Array.from({ length: 32 }, (_, i) => {
-    const fract = (x) => x - Math.floor(x);
-    return { lat: Math.asin(fract(i * .6180339 + .31) * 1.8 - .9), lon: TAU * fract(i * .75487766 + .23), size: .035 + fract(i * .4142) * .08 };
-  });
-
-  function drawBeam(ctx, cx, cy, radius, v, front, power) {
-    const p = project(v);
-    const reach = radius * 3.05;
-    const endX = cx + p.x * reach;
-    const endY = cy - p.y * reach;
-    const dx = endX - cx, dy = endY - cy;
-    const len = Math.hypot(dx, dy);
-    if (len < 4) return;
-    const spread = reach * Math.tan(model.rho * deg) * (0.48 + Math.abs(p.depth) * .25);
-    const nx = -dy / len, ny = dx / len;
-    ctx.save();
-    ctx.globalAlpha = front ? .55 + power * .32 : .16;
-    const gradient = ctx.createLinearGradient(cx, cy, endX, endY);
-    gradient.addColorStop(0, "rgba(172,255,236,.5)");
-    gradient.addColorStop(.36, "rgba(91,223,227,.24)");
-    gradient.addColorStop(1, "rgba(56,186,207,0)");
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(endX + nx * spread, endY + ny * spread);
-    ctx.quadraticCurveTo(endX + dx * .12, endY + dy * .12, endX - nx * spread, endY - ny * spread);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = front ? "rgba(145,244,237,.55)" : "rgba(145,244,237,.2)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();ctx.moveTo(cx, cy);ctx.lineTo(endX, endY);ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawStage() {
-    const ctx = stageCtx, w = view.stageW, h = view.stageH;
-    if (!w || !h) return;
-    ctx.clearRect(0, 0, w, h);
-    const cx = w * .5, cy = h * .51;
-    const r = Math.min(w * .18, h * .165, 80);
-    const power = intensityAt(model.cycles);
-    const phase = TAU * model.cycles;
-    const m = vecFromAngles(model.alpha, phase);
-    const opposite = m.map((x) => -x);
-    const mProjected = project(m);
-    const observer = vecFromAngles(model.zeta, observerAzimuth);
-    const obsProjected = project(observer);
-
-    // Quiet astronomical field and measurement rings.
-    for (const star of stars) {
-      const sx = star.x * w, sy = star.y * h;
-      const fade = Math.min(1, Math.hypot(sx - cx, sy - cy) / (r * 1.5));
-      ctx.fillStyle = `rgba(165,217,224,${star.alpha * fade})`;
-      ctx.beginPath();ctx.arc(sx, sy, star.size, 0, TAU);ctx.fill();
-    }
-    ctx.strokeStyle = "rgba(112,169,185,.12)";
-    ctx.lineWidth = 1;
-    for (const mult of [1.55, 2.4]) {
-      ctx.beginPath();ctx.arc(cx, cy, r * mult, 0, TAU);ctx.stroke();
-    }
-    ctx.strokeStyle = "rgba(139,233,223,.26)";
-    ctx.setLineDash([5, 7]);
-    ctx.beginPath();ctx.moveTo(cx, cy + r * 2.3);ctx.lineTo(cx, cy - r * 2.3);ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = "11px ui-monospace,Consolas,monospace";
-    ctx.fillStyle = "rgba(169,210,217,.68)";
-    ctx.fillText("DÖNME EKSENİ", cx + 10, cy - r * 2.15);
-
-    // A fixed sightline makes the emission geometry legible.
-    const ox = cx + obsProjected.x * r * 2.8;
-    const oy = cy - obsProjected.y * r * 2.8;
-    ctx.strokeStyle = "rgba(225,170,104,.55)";
-    ctx.setLineDash([3, 5]);ctx.beginPath();ctx.moveTo(cx, cy);ctx.lineTo(ox, oy);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle = `rgba(225,170,104,${.7 + power * .3})`;
-    ctx.beginPath();ctx.arc(ox, oy, 4.1 + power * 3.5, 0, TAU);ctx.fill();
-    ctx.fillStyle = "rgba(235,197,148,.9)";
-    ctx.fillText("GÖZLEMCİ", ox + 10, oy + 4);
-
-    const beams = [{ v: m, p: mProjected }, { v: opposite, p: project(opposite) }];
-    beams.filter(({ p }) => p.depth <= 0).forEach(({ v }) => drawBeam(ctx, cx, cy, r, v, false, power));
-
-    // Magnetic field loops are illustrative; their direction follows the magnetic axis.
-    const tilt = Math.atan2(-mProjected.y, mProjected.x);
-    ctx.save();ctx.translate(cx, cy);ctx.rotate(tilt);
-    for (const k of [1.45, 1.9]) {
-      ctx.beginPath();ctx.ellipse(0, 0, r * k, r * .6 * k, 0, 0, TAU);
-      ctx.strokeStyle = "rgba(121,199,211,.17)";ctx.lineWidth = 1;ctx.stroke();
-    }
-    ctx.restore();
-
-    const halo = ctx.createRadialGradient(cx, cy, r * .15, cx, cy, r * (2 + power * .35));
-    halo.addColorStop(0, `rgba(151,244,226,${.18 + power * .18})`);
-    halo.addColorStop(1, "rgba(82,204,217,0)");
-    ctx.fillStyle = halo;ctx.beginPath();ctx.arc(cx, cy, r * (2 + power * .35), 0, TAU);ctx.fill();
-    const body = ctx.createRadialGradient(cx - r * .32, cy - r * .38, 0, cx, cy, r * 1.02);
-    body.addColorStop(0, "#effff2");body.addColorStop(.22, "#afdcd0");
-    body.addColorStop(.55, "#4d8e96");body.addColorStop(.86, "#173e55");body.addColorStop(1, "#061827");
-    ctx.fillStyle = body;ctx.beginPath();ctx.arc(cx, cy, r, 0, TAU);ctx.fill();
-    ctx.save();ctx.beginPath();ctx.arc(cx, cy, r - 1, 0, TAU);ctx.clip();
-    for (const patch of patches) {
-      const local = [Math.cos(patch.lat) * Math.cos(patch.lon + phase), Math.cos(patch.lat) * Math.sin(patch.lon + phase), Math.sin(patch.lat)];
-      const p = project(local);
-      if (p.depth <= .05) continue;
-      const x = cx + p.x * r, y = cy - p.y * r;
-      ctx.fillStyle = `rgba(221,255,231,${.08 + p.depth * .29})`;
-      ctx.beginPath();ctx.ellipse(x, y, r * patch.size * (0.5 + p.depth), r * patch.size * .47, phase * .35, 0, TAU);ctx.fill();
-    }
-    ctx.restore();
-    ctx.strokeStyle = "rgba(169,245,232,.62)";ctx.lineWidth = 1.5;
-    ctx.beginPath();ctx.arc(cx, cy, r, 0, TAU);ctx.stroke();
-    beams.filter(({ p }) => p.depth > 0).forEach(({ v }) => drawBeam(ctx, cx, cy, r, v, true, power));
-
-    if (power > .02) {
-      const flash = ctx.createRadialGradient(cx, cy, r * .15, cx, cy, r * 1.7);
-      flash.addColorStop(0, `rgba(212,255,238,${power * .38})`);
-      flash.addColorStop(1, "rgba(212,255,238,0)");
-      ctx.fillStyle = flash;ctx.beginPath();ctx.arc(cx, cy, r * 1.7, 0, TAU);ctx.fill();
+  // DOM controls are generated from field definitions; provenance remains in state.
+  const specs = [
+    {key:'period',label:'Dönme periyodu P',unit:'s',min:.0005,max:10,step:'any',group:'catalogue',log:true,info:'Katalog: fiziksel dönme periyodu.'},
+    {key:'period_dot',label:'Periyot türevi Ṗ',unit:'s/s',min:1e-22,max:1e-9,step:'any',group:'catalogue',log:true,info:'Pozitif Ṗ, dönüşün yavaşladığını gösterir.'},
+    {key:'alpha',label:'Manyetik eğim α',unit:'°',min:0,max:90,step:1,group:'geometry',info:'Dönme ve manyetik eksen arasındaki açı.'},
+    {key:'zeta',label:'Bakış açısı ζ',unit:'°',min:0,max:180,step:1,group:'geometry',info:'Dönme ekseniyle görüş hattı arasındaki açı.'},
+    {key:'rho',label:'Işın yarı açıklığı ρ',unit:'°',min:1,max:45,step:1,group:'geometry',info:'Temsili radyo ışın konisinin yarı açıklığı.'},
+  ];
+  function makeControls() {
+    for (const spec of specs) {
+      const node=document.createElement('div'); node.className='control';
+      const range = spec.log ? `<input id="${spec.key}-range" type="range" min="${Math.log10(spec.min)}" max="${Math.log10(spec.max)}" step="0.005" aria-label="${spec.label} kaydırıcısı">` : `<input id="${spec.key}-range" type="range" min="${spec.min}" max="${spec.max}" step="${spec.step}" aria-label="${spec.label} kaydırıcısı">`;
+      node.innerHTML=`<label for="${spec.key}-input">${spec.label} <b class="badge" id="${spec.key}-badge">${spec.group==='geometry'?'MODEL':'KATALOG'}</b></label><div class="field"><input id="${spec.key}-input" type="number" min="${spec.min}" max="${spec.max}" step="${spec.step}" aria-label="${spec.label}"><span>${spec.unit}</span></div>${range}<small id="${spec.key}-original">${spec.info}</small>`;
+      $(spec.group==='geometry'?'geometry-controls':'catalogue-controls').append(node);
+      $(spec.key+'-input').addEventListener('input', e => {
+        const value=Number(e.target.value);
+        if(e.target.value===''||!Number.isFinite(value)||value<spec.min||value>spec.max||!LabState.setExperiment(state,spec.key,value))return;
+        $(spec.key+'-range').value=spec.log?Math.log10(value):value;
+        state.observation.dedispersed=false;syncMode();syncSummary();drawAll();
+        const badge=$(spec.key+'-badge');badge.textContent='DENEY';badge.className='badge experiment';
+        const source=spec.group==='geometry'?state.model[spec.key]:state.catalogue[spec.key];
+        $(spec.key+'-original').textContent=`Başlangıç: ${raw(source)} ${spec.unit} · ${spec.info}`;
+      });
+      $(spec.key+'-input').addEventListener('change', e => commit(spec, Number(e.target.value)));
+      $(spec.key+'-range').addEventListener('input', e => commit(spec, spec.log ? 10 ** Number(e.target.value) : Number(e.target.value)));
     }
   }
-
-  function drawTrace() {
-    const ctx = traceCtx, w = view.traceW, h = view.traceH;
-    if (!w || !h) return;
-    ctx.clearRect(0, 0, w, h);
-    const top = 13, baseline = h - 32, amplitude = baseline - top - 4;
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 6; i++) {
-      const x = i / 6 * w;
-      ctx.strokeStyle = i === 6 ? "rgba(225,170,104,.48)" : "rgba(119,166,181,.15)";
-      ctx.beginPath();ctx.moveTo(x, 0);ctx.lineTo(x, h);ctx.stroke();
+  function commit(spec,value) {
+    if (!Number.isFinite(value) || value<spec.min || value>spec.max || !LabState.setExperiment(state,spec.key,value)) { sync();$(spec.key+'-original').textContent=`Geçersiz değer. İzin verilen aralık: ${spec.min}–${spec.max} ${spec.unit}.`;$(spec.key+'-original').style.color='var(--amber)';return; }
+    $(spec.key+'-original').style.color='';
+    state.observation.dedispersed=false;
+    sync();
+  }
+  function syncControls() {
+    for (const spec of specs) {
+      const current=val(spec.key), source=spec.group==='geometry'?state.model[spec.key]:state.catalogue[spec.key];
+      $(spec.key+'-input').value=current ?? '';
+      $(spec.key+'-range').value=current==null?spec.log?Math.log10(spec.min):spec.min:spec.log?Math.log10(Number(current)):Number(current);
+      const changed=Object.hasOwn(state.experiment,spec.key) && state.mode==='experiment';
+      const badge=$(spec.key+'-badge'); badge.textContent=changed?'DENEY':spec.group==='geometry'?'MODEL':'KATALOG';badge.className='badge'+(changed?' experiment':spec.group==='geometry'?' model':'');
+      $(spec.key+'-original').textContent=changed?`Başlangıç: ${raw(source)} ${spec.unit} · ${spec.info}`:spec.info;
     }
-    ctx.strokeStyle = "rgba(119,166,181,.3)";
-    for (const y of [top, (top + baseline) / 2, baseline]) {
-      ctx.beginPath();ctx.moveTo(0, y);ctx.lineTo(w, y);ctx.stroke();
-    }
-    const samples = Math.max(120, Math.round(w));
-    const yAt = (x) => baseline - intensityAt(model.cycles - 6 + x / w * 6) * amplitude;
-    const fill = ctx.createLinearGradient(0, top, 0, baseline);
-    fill.addColorStop(0, "rgba(112,227,224,.24)");fill.addColorStop(1, "rgba(112,227,224,.015)");
-    ctx.beginPath();ctx.moveTo(0, baseline);
-    for (let i = 0; i <= samples; i++) { const x = i / samples * w; ctx.lineTo(x, yAt(x)); }
-    ctx.lineTo(w, baseline);ctx.closePath();ctx.fillStyle = fill;ctx.fill();
-    ctx.beginPath();
-    for (let i = 0; i <= samples; i++) { const x = i / samples * w; i ? ctx.lineTo(x, yAt(x)) : ctx.moveTo(x, yAt(x)); }
-    ctx.strokeStyle = "#a0f5ea";ctx.lineWidth = 2.1;ctx.shadowColor = "#52dbdc";ctx.shadowBlur = 8;ctx.stroke();ctx.shadowBlur = 0;
-    ctx.fillStyle = "#e1aa68";ctx.beginPath();ctx.arc(w - 2, yAt(w), 3.5, 0, TAU);ctx.fill();
-    ctx.fillStyle = "rgba(157,194,202,.7)";ctx.font = "11px ui-monospace,Consolas,monospace";
-    ctx.fillText("GÖRECELİ SİNYAL", 12, h - 10);
+    $('dm-input').value=val('dm')??'';
+    $('dm-badge').textContent=state.experiment.dm!==undefined&&state.mode==='experiment'?'DENEY':'KATALOG';
+    $('dm-badge').className='badge'+(state.experiment.dm!==undefined&&state.mode==='experiment'?' experiment':'');
+    $('dm-original').textContent=`Katalog: ${raw(state.catalogue.dm)} pc cm⁻³`;
   }
+  function syncMode() {
+    const experiment=state.mode==='experiment';
+    $('catalogue-mode').classList.toggle('active',!experiment);$('experiment-mode').classList.toggle('active',experiment);
+    document.querySelector('.modebar').classList.toggle('experiment',experiment);
+    $('mode-description').textContent=experiment?`DENEYSEL MODEL · Başlangıç nesnesi: ${state.catalogue.name}`:'Katalog değerleriyle görüntüleniyor · açı değerleri model varsayımı';
+    $('reset').hidden=!experiment;
+  }
+  function stat(label,value,unit,kind,tip='') {return `<div class="stat"><span>${label} <b class="badge ${kind==='MODEL'?'model':kind==='DENEY'?'experiment':kind==='TÜRETİLEN'?'derived':''}" title="${esc(tip)}">${kind}</b></span><strong>${esc(value)}</strong><small>${esc(unit)}${tip?' · '+esc(tip):''}</small></div>`;}
+  function syncSummary() {
+    const d=derived(), p=num('period'), pdot=num('period_dot'), experimental=state.mode==='experiment';
+    $('star-title').textContent=experimental?'DENEYSEL MODEL':state.catalogue.name;
+    $('period-readout').textContent=formatPeriod(p);$('frequency-readout').textContent=d.frequency===null?'Veri yok':`${nf(d.frequency,4)} Hz`;
+    $('period-badge').textContent=experimental&&state.experiment.period!==undefined?'DENEY':'KATALOG';
+    $('period-badge').className='badge'+(experimental&&state.experiment.period!==undefined?' experiment':'');
+    const badge=experimental?'DENEY':'KATALOG';
+    $('summary-grid').innerHTML=[
+      stat('P',raw(experimental&&state.experiment.period!==undefined?state.experiment.period:state.catalogue.period),'s',experimental&&state.experiment.period!==undefined?badge:'KATALOG'),
+      stat('Ṗ',pdot>0?sci(pdot):'Veri yok','s/s',experimental&&state.experiment.period_dot!==undefined?badge:'KATALOG','Periyotun zamanla değişim oranı'),
+      stat('DM',val('dm')==null?'Veri yok':nf(num('dm'),4),'pc cm⁻³',experimental&&state.experiment.dm!==undefined?badge:'KATALOG','Serbest elektron sütun yoğunluğu'),
+      stat('ν',d.frequency===null?'Veri yok':nf(d.frequency,5),'Hz','TÜRETİLEN'),
+      stat('τc',d.ageYears===null?'Veri yok':`${nf(d.ageYears/1e6,3)} Myr`,'Gerçek yaş olmak zorunda değildir','TÜRETİLEN','Standart frenleme varsayımı'),
+      stat('Bs',d.fieldGauss===null?'Veri yok':sci(d.fieldGauss),'G · doğrudan ölçüm değildir','TÜRETİLEN','Standart dipol frenleme yaklaşımı'),
+      stat('Ė',d.edotErgS===null?'Veri yok':sci(d.edotErgS),'erg/s · dönme enerjisi kaybı','TÜRETİLEN','I = 10⁴⁵ g cm² varsayımı'),
+      stat('RLC',d.lightCylinderKm===null?'Veri yok':nf(d.lightCylinderKm,1),'km','TÜRETİLEN','cP / 2π'),
+    ].join('');
+    const yes=visible(), indicator=$('detection-indicator');indicator.classList.toggle('off',!yes);
+    indicator.querySelector('span').textContent=yes?'ATIM BEKLENİYOR':'ATIM YOK';
+    $('pulse-state').textContent=yes?'GÖRÜŞ HATTI IŞINDA':'IŞIN GÖRÜŞ DIŞINDA';
+    const beta=num('zeta')-num('alpha');
+    $('geometry-explanation').textContent=`α ${nf(num('alpha'),0)}° · ζ ${nf(num('zeta'),0)}° · ρ ${nf(num('rho'),0)}° · β≈${nf(beta,0)}° · ${yes?'Görüş hattı ışın konisini kesebilir.':'Yıldız döner; bu açıdan radyo atımı görülmez.'}`;
+    $('signal-detect').textContent=yes?'Atım mümkün':'Atım yok';
+    $('signal-geometry').textContent=`β≈${nf(beta,0)}° · ρ=${nf(num('rho'),0)}°`;
+    syncSource(); syncMapDescription(); syncDispersion();
+  }
+  function syncSource() {
+    const c=state.catalogue; $('source-title').textContent=c.name;
+    const fields=[['Ad / diğer ad',c.alt_name],['P',c.period==null?null:`${c.period} s`],['Ṗ',c.period_dot==null?null:`${c.period_dot} s/s`],['DM',c.dm==null?null:`${c.dm} pc cm⁻³`],['RM',c.rm==null?null:`${c.rm} rad/m²`],['W50',c.pulse_width_50==null?null:`${c.pulse_width_50} ms`],['W10',c.pulse_width_10==null?null:`${c.pulse_width_10} ms`],['S400',c.flux_400_mhz==null?null:`${c.flux_400_mhz} mJy`],['S1400',c.flux_1400_mhz==null?null:`${c.flux_1400_mhz} mJy`],['RA / Dec',`${c.ra}° / ${c.dec}°`],['Uzaklık',c.distance==null?null:`${c.distance} kpc`],['Uzaklık yöntemi',c.distance_method||'Aynada belirtilmemiş'],['Tür',c.pulsar_type],['İkili model',c.binary_model],['İlişki',c.assoc_object]];
+    $('source-content').innerHTML=`<p class="microcopy">Bu kayıt ATNF kataloğunun NASA HEASARC aynasından alınmıştır. Aşağıdaki sayılar kaynakta gelen değerlerdir; deney değişiklikleri burada yer almaz. Uzaklığın yöntemi bu aynada belirtilmez.</p><div class="source-table">${fields.map(([k,v])=>`<div class="source-item"><span>${esc(k)} · KATALOG</span><strong>${esc(raw(v))}</strong></div>`).join('')}</div>`;
+  }
+  function selectObject(item) {LabState.select(state,item);$('pulsar-select').value=item.name;sync();}
+  function sync() {syncMode();syncControls();syncSummary();drawAll();}
 
-  function updateReadouts() {
-    const p = model.periodMs / 1000;
-    const pdot = model.pdotE15 * 1e-15;
-    const b = 3.2e19 * Math.sqrt(p * pdot);
-    const age = p / (2 * pdot) / (365.25 * 86400);
-    $("period-readout").innerHTML = `${nfmt(model.periodMs)} <small>ms</small>`;
-    $("corner-period").textContent = nfmt(model.periodMs);
-    $("frequency-readout").innerHTML = `${nfmt(1 / p, 4)} <small>Hz</small>`;
-    $("period-value").textContent = `${nfmt(model.periodMs)} ms`;
-    $("quick-period-value").textContent = `${nfmt(model.periodMs)} ms`;
-    $("alpha-value").textContent = `${model.alpha}°`;
-    $("zeta-value").textContent = `${model.zeta}°`;
-    $("rho-value").textContent = `${model.rho}°`;
-    $("pdot-readout").textContent = `${nfmt(model.pdotE15)} × 10⁻¹⁵`;
-    $("distance-readout").textContent = `${nfmt(model.distanceKpc)} kpc`;
-    document.querySelector("#distance-readout + small").textContent = `≈ ${nfmt(model.distanceKpc * 3261.563777, 0)} ışık yılı · DM tahmini`;
-    $("field-readout").textContent = `${nfmt(b / 1e12)} × 10¹²`;
-    $("age-readout").textContent = `${nfmt(age / 1e6)} milyon`;
-    $("window-label").textContent = nfmt(model.periodMs * 6 / 1000, 2);
-    $("pulse-state").textContent = hasPulse() ? "ışın görüş hattını kesiyor" : "bu açıda atım görünmüyor";
-    $("pulse-state").style.color = hasPulse() ? "var(--cyan)" : "var(--amber)";
-    $("pdot-tag").textContent = Math.abs(model.pdotE15 - CATALOG.pdotE15) < 1e-8 ? "KATALOG" : "ÖZEL DEĞER";
-    $("distance-tag").textContent = Math.abs(model.distanceKpc - CATALOG.distanceKpc) < 1e-8 ? "DM TAHMİNİ" : "ÖZEL DEĞER";
-    $("rotation-readout").textContent = nfmt(Math.floor(model.cycles), 0);
+  const canvases=['star','trace','profile','ppdot','waterfall'];
+  const ctx={}; for (const id of canvases) ctx[id]=$(id).getContext('2d');
+  function prepare(id) { const canvas=$(id), box=canvas.getBoundingClientRect();if(!box.width||!box.height)return null;const ratio=Math.min(devicePixelRatio||1,2), w=box.width,h=box.height;if(canvas.width!==Math.round(w*ratio)||canvas.height!==Math.round(h*ratio)){canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);}ctx[id].setTransform(ratio,0,0,ratio,0,0);ctx[id].clearRect(0,0,w,h);return {c:ctx[id],w,h};}
+  const camera=55*RAD;function project(v){return{x:v[1],y:-v[0]*Math.cos(camera)+v[2]*Math.sin(camera),depth:v[0]*Math.sin(camera)+v[2]*Math.cos(camera)};}
+  function vector(a,az){return[Math.sin(a*RAD)*Math.cos(az),Math.sin(a*RAD)*Math.sin(az),Math.cos(a*RAD)];}
+  const stars=Array.from({length:75},(_,i)=>{const fract=x=>x-Math.floor(x);return{x:fract(i*.6180339+.19),y:fract(i*.7548777+.32),r:.4+fract(i*.4389),a:.12+fract(i*.367)*.36};});
+  const patches=Array.from({length:30},(_,i)=>{const fract=x=>x-Math.floor(x);return{lat:Math.asin(fract(i*.618+.31)*1.8-.9),lon:TAU*fract(i*.754+.23),size:.03+fract(i*.414)*.06};});
+  function line(c,x1,y1,x2,y2,color,width=1,dash=[]) {c.beginPath();c.setLineDash(dash);c.moveTo(x1,y1);c.lineTo(x2,y2);c.strokeStyle=color;c.lineWidth=width;c.stroke();c.setLineDash([]);}
+  function beam(c,cx,cy,r,v,front,power){const q=project(v),endX=cx+q.x*r*3,endY=cy-q.y*r*3,dx=endX-cx,dy=endY-cy,len=Math.hypot(dx,dy);if(len<5)return;const spread=r*3*Math.tan(num('rho')*RAD)*(.45+Math.abs(q.depth)*.25),nx=-dy/len,ny=dx/len;c.save();c.globalAlpha=front?.55+power*.25:.17;const g=c.createLinearGradient(cx,cy,endX,endY);g.addColorStop(0,'rgba(172,255,236,.48)');g.addColorStop(1,'rgba(56,186,207,0)');c.fillStyle=g;c.beginPath();c.moveTo(cx,cy);c.lineTo(endX+nx*spread,endY+ny*spread);c.quadraticCurveTo(endX+dx*.12,endY+dy*.12,endX-nx*spread,endY-ny*spread);c.closePath();c.fill();line(c,cx,cy,endX,endY,'rgba(145,244,237,.48)');c.restore();}
+  function drawStage(){const v=prepare('star');if(!v)return;const{c,w,h}=v,cx=w*.5,cy=h*.5,r=Math.min(w*.15,h*.16,78),turn=TAU*state.playback.cycles,power=response(state.playback.cycles),m=vector(num('alpha'),turn),neg=m.map(x=>-x),observer=vector(num('zeta'),OBS_AZ),op=project(observer),mp=project(m);
+    for(const s of stars){c.fillStyle=`rgba(165,217,224,${s.a})`;c.beginPath();c.arc(s.x*w,s.y*h,s.r,0,TAU);c.fill();}
+    c.strokeStyle='rgba(112,169,185,.13)';for(const n of [1.6,2.35]){c.beginPath();c.arc(cx,cy,r*n,0,TAU);c.stroke();}
+    const axis=project([0,0,1]);line(c,cx-axis.x*r*2.2,cy+axis.y*r*2.2,cx+axis.x*r*2.2,cy-axis.y*r*2.2,'rgba(139,233,223,.58)',1.4,[5,6]);
+    c.fillStyle='#a4dce1';c.font='11px ui-monospace,monospace';c.fillText('Ω  DÖNME EKSENİ',16,25);
+    const ox=cx+op.x*r*2.7,oy=cy-op.y*r*2.7;line(c,cx,cy,ox,oy,'rgba(225,170,104,.75)',1.4,[3,5]);c.fillStyle=power>.15?'#ffdaa1':'#e1aa68';c.beginPath();c.arc(ox,oy,4+power*4,0,TAU);c.fill();c.fillText('○  GÖZLEMCİ',16,58);
+    for(const b of [m,neg])if(project(b).depth<=0)beam(c,cx,cy,r,b,false,power);
+    const halo=c.createRadialGradient(cx,cy,r*.1,cx,cy,r*2.2);halo.addColorStop(0,`rgba(151,244,226,${.16+power*.22})`);halo.addColorStop(1,'rgba(82,204,217,0)');c.fillStyle=halo;c.beginPath();c.arc(cx,cy,r*2.2,0,TAU);c.fill();
+    const body=c.createRadialGradient(cx-r*.3,cy-r*.38,0,cx,cy,r);body.addColorStop(0,'#effff2');body.addColorStop(.25,'#afdcd0');body.addColorStop(.6,'#4d8e96');body.addColorStop(1,'#061827');c.fillStyle=body;c.beginPath();c.arc(cx,cy,r,0,TAU);c.fill();
+    c.save();c.beginPath();c.arc(cx,cy,r-1,0,TAU);c.clip();for(const patch of patches){const p=project([Math.cos(patch.lat)*Math.cos(patch.lon+turn),Math.cos(patch.lat)*Math.sin(patch.lon+turn),Math.sin(patch.lat)]);if(p.depth<=0)continue;c.fillStyle=`rgba(221,255,231,${.08+p.depth*.3})`;c.beginPath();c.ellipse(cx+p.x*r,cy-p.y*r,r*patch.size*(.5+p.depth),r*patch.size*.5,turn*.3,0,TAU);c.fill();}c.restore();
+    for(const b of [m,neg])if(project(b).depth>0)beam(c,cx,cy,r,b,true,power);
+    line(c,cx-mp.x*r*1.7,cy+mp.y*r*1.7,cx+mp.x*r*1.7,cy-mp.y*r*1.7,'rgba(255,237,176,.75)',1.4);
+    c.fillStyle='#ffedb0';for(const b of [m,neg]){const q=project(b);c.beginPath();c.arc(cx+q.x*r,cy-q.y*r,4,0,TAU);c.fill();}c.fillText('μ  MANYETİK EKSEN',16,41);
   }
-  function syncInputs() {
-    $("period").value = String(model.periodMs);
-    $("quick-period").value = String(model.periodMs);
-    $("period-number").value = String(model.periodMs);
-    $("pdot-number").value = String(model.pdotE15);
-    $("distance-number").value = String(model.distanceKpc);
-    for (const key of ["alpha", "zeta", "rho"]) $(key).value = String(model[key]);
-    updateReadouts();
+  function drawSignal(id,live){const v=prepare(id);if(!v)return;const{c,w,h}=v,top=22,base=h-34,amp=base-top-5;for(let i=0;i<=6;i++){let x=i*w/6;line(c,x,0,x,h,i===6?'rgba(225,170,104,.45)':'rgba(119,166,181,.14)');}for(const y of [top,(top+base)/2,base])line(c,0,y,w,y,'rgba(119,166,181,.24)');const yAt=x=>{const cycles=live?state.playback.cycles-5+5*x/w:x/w;return base-response(cycles)*amp;};const fill=c.createLinearGradient(0,top,0,base);fill.addColorStop(0,'rgba(112,227,224,.22)');fill.addColorStop(1,'rgba(112,227,224,.01)');c.beginPath();c.moveTo(0,base);for(let x=0;x<=w;x+=2)c.lineTo(x,yAt(x));c.lineTo(w,base);c.closePath();c.fillStyle=fill;c.fill();c.beginPath();for(let x=0;x<=w;x+=2)x?c.lineTo(x,yAt(x)):c.moveTo(x,yAt(x));c.strokeStyle='#a0f5ea';c.lineWidth=2;c.shadowColor='#52dbdc';c.shadowBlur=8;c.stroke();c.shadowBlur=0;line(c,w*(live?1:(state.playback.cycles%1)),top,w*(live?1:(state.playback.cycles%1)),base,'rgba(225,170,104,.6)',1,[3,4]);c.fillStyle='#97b5be';c.font='11px ui-monospace,monospace';c.fillText(live?'5 DÖNÜŞLÜK PENCERE':'DÖNME FAZI 0 → 1',12,h-10);}
+  function nextPulse(){
+    if(!visible())return null;
+    const alpha=num('alpha'),zeta=num('zeta'),rho=num('rho');
+    const peaks=[];
+    if(Math.abs(zeta-alpha)<rho)peaks.push(0);
+    if(Math.abs(180-zeta-alpha)<rho)peaks.push(Math.PI);
+    const current=phase(state.playback.cycles);
+    const remaining=peaks.map(target=>((target-current)%TAU+TAU)%TAU || TAU);
+    return Math.min(...remaining)/TAU*num('period');
   }
-  function setParam(key, value) {
-    if (!Number.isFinite(value) || value < limits[key][0] || value > limits[key][1]) return false;
-    model[key] = value;
-    syncInputs();
-    drawStage();drawTrace();
-    return true;
-  }
-  $("period").addEventListener("input", (e) => setParam("periodMs", Number(e.target.value)));
-  $("quick-period").addEventListener("input", (e) => setParam("periodMs", Number(e.target.value)));
-  for (const key of ["alpha", "zeta", "rho"]) $(key).addEventListener("input", (e) => setParam(key, Number(e.target.value)));
-  for (const [id, key] of [["period-number", "periodMs"], ["pdot-number", "pdotE15"], ["distance-number", "distanceKpc"]]) {
-    $(id).addEventListener("input", (e) => {
-      if (e.target.value === "") return;
-      const value = Number(e.target.value);
-      if (!Number.isFinite(value) || value < limits[key][0] || value > limits[key][1]) return;
-      model[key] = value;
-      if (key === "periodMs") {
-        $("period").value = String(value);
-        $("quick-period").value = String(value);
-      }
-      updateReadouts();drawStage();drawTrace();
-    });
-    $(id).addEventListener("change", (e) => { if (!setParam(key, Number(e.target.value))) syncInputs(); });
-  }
-  function updateButton() {
-    $("toggle").textContent = model.running ? "⏸ Duraklat" : "▶ Oynat";
-    document.querySelector(".live span").textContent = model.running ? "GERÇEK ZAMAN" : "DURAKLATILDI";
-    document.querySelector(".live i").style.opacity = model.running ? "1" : ".35";
-  }
-  $("toggle").addEventListener("click", () => { model.running = !model.running;updateButton(); });
-  $("reset").addEventListener("click", () => { Object.assign(model, CATALOG);model.cycles = 0;syncInputs();drawStage();drawTrace(); });
-  syncInputs();updateButton();
+  function drawDynamic(){if(state.tab==='geometry'){drawStage();drawSignal('trace',true);}if(state.tab==='signal'&&state.signalView==='model')drawSignal('profile',false);const ph=((phase(state.playback.cycles)%TAU+TAU)%TAU)/RAD,power=response(state.playback.cycles);$('phase-corner').textContent=`${nf(ph,0)}°`;$('phase-readout').textContent=`${nf(ph,0)}°`;$('intensity-readout').textContent=nf(power*100,0);const indicator=$('detection-indicator');indicator.querySelector('span').textContent=!visible()?'ATIM YOK':power>.1?'ATIM ALGILANIYOR':'ATIM BEKLENİYOR';indicator.classList.toggle('waiting',visible()&&power<=.1);const next=nextPulse();$('next-pulse').textContent=next===null?'yok':next<.001?`${nf(next*1000,2)} ms`:`${nf(next,3)} s`;$('signal-next').textContent=`Sonraki: ${$('next-pulse').textContent}`;}
+  function drawAll(){drawDynamic();if(state.tab==='ppdot')drawMap();if(state.tab==='dispersion')drawWaterfall();}
 
-  // Optional browser agent control; it changes the exact same state as the visible controls.
-  if (document.modelContext?.registerTool) {
-    try {
-      void Promise.resolve(document.modelContext.registerTool({
-        name: "set_pulsar_parameters",
-        title: "Pulsar parametrelerini ayarla",
-        description: "Görünür pulsar simülasyonunda periyot, periyot türevi, uzaklık ve ışın geometrisini ayarlar.",
-        inputSchema: {
-          type: "object",
-          properties: Object.fromEntries(Object.entries(limits).map(([key, [minimum, maximum]]) => [key, { type: "number", minimum, maximum }])),
-          additionalProperties: false,
-          minProperties: 1,
-        },
-        annotations: { readOnlyHint: false },
-        execute(input) {
-          if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Parametreler nesne olmalıdır.");
-          const entries = Object.entries(input);
-          if (!entries.length || entries.some(([key, value]) => !limits[key] || !Number.isFinite(value) || value < limits[key][0] || value > limits[key][1])) {
-            throw new Error("Parametre veya değer geçersiz.");
-          }
-          for (const [key, value] of entries) model[key] = value;
-          syncInputs();drawStage();drawTrace();
-          return Object.fromEntries(Object.keys(limits).map((key) => [key, model[key]]));
-        },
-      })).catch(() => {});
-    } catch { /* Unsupported browser implementations are harmless. */ }
+  // Static catalogue population. Canvas positions are reused for hover and curated-object selection.
+  let plotted=[];
+  const limits={x0:-3.4,x1:1.3,y0:-22.5,y1:-8.5};
+  function drawMap(){const v=prepare('ppdot');if(!v)return;const{c,w,h}=v,m={left:68,right:17,top:18,bottom:50},pw=w-m.left-m.right,ph=h-m.top-m.bottom;const x=P=>m.left+(Math.log10(P)-limits.x0)/(limits.x1-limits.x0)*pw,y=D=>m.top+(limits.y1-Math.log10(D))/(limits.y1-limits.y0)*ph,inside=(P,D)=>P>0&&D>0&&Math.log10(P)>=limits.x0&&Math.log10(P)<=limits.x1&&Math.log10(D)>=limits.y0&&Math.log10(D)<=limits.y1;
+    c.font='10px ui-monospace,monospace';c.fillStyle='#97b5be';for(let q=-3;q<=1;q++){let xx=x(10**q);line(c,xx,m.top,xx,m.top+ph,'rgba(119,166,181,.14)');c.fillText(`10^${q}`,xx-13,h-25);}for(let q=-22;q<=-10;q+=2){let yy=y(10**q);line(c,m.left,yy,m.left+pw,yy,'rgba(119,166,181,.14)');c.fillText(`10^${q}`,8,yy+3);}c.fillText('P [s] →',w/2-22,h-8);c.fillText('Ṗ [s/s]',m.left,12);
+    function guide(fn,label){c.beginPath();let started=false;for(let i=0;i<180;i++){const P=10**(limits.x0+(limits.x1-limits.x0)*i/179),D=fn(P);if(!inside(P,D)){started=false;continue;}const xx=x(P),yy=y(D);started?c.lineTo(xx,yy):c.moveTo(xx,yy);started=true;}c.setLineDash([4,7]);c.lineWidth=1;c.strokeStyle='rgba(225,170,104,.32)';c.stroke();c.setLineDash([]);}
+    for(const B of [1e8,1e12,1e14])guide(P=>(B/3.2e19)**2/P,`B${B}`);
+    for(const age of [1e3,1e6,1e9])guide(P=>P/(2*age*Physics.constants.YEAR),`τ${age}`);
+    plotted=[];for(const row of POPULATION){const [n,P,D,t,binary]=row;if(!inside(P,D))continue;const xx=x(P),yy=y(D);let color=t&&/AXP|SGR/.test(t)?'#d89665':P<.03?'#9a9ce2':'#5d8391';c.fillStyle=color;c.globalAlpha=.55;c.beginPath();c.arc(xx,yy,1.5,0,TAU);c.fill();if(binary){c.strokeStyle='#89c6ba';c.lineWidth=.7;c.beginPath();c.arc(xx,yy,2.6,0,TAU);c.stroke();}plotted.push({name:n,x:xx,y:yy});}c.globalAlpha=1;
+    const catP=Number(state.catalogue.period),catD=Number(state.catalogue.period_dot),expP=num('period'),expD=num('period_dot');
+    if(inside(catP,catD)){const cx=x(catP),cy=y(catD);if(state.mode==='experiment'&&inside(expP,expD)&&(catP!==expP||catD!==expD)){line(c,cx,cy,x(expP),y(expD),'rgba(225,170,104,.78)',1.5,[4,4]);c.strokeStyle='#ffedb0';c.lineWidth=2;c.beginPath();c.arc(cx,cy,7,0,TAU);c.stroke();c.fillStyle='#e1aa68';c.beginPath();c.arc(x(expP),y(expD),6,0,TAU);c.fill();}else{c.fillStyle='#ffedb0';c.beginPath();c.arc(cx,cy,6,0,TAU);c.fill();}c.font='11px ui-monospace,monospace';c.fillStyle='#ffedb0';c.fillText('SEÇİLEN',Math.min(cx+10,w-74),Math.max(cy-10,19));}else if(state.mode==='experiment'&&inside(expP,expD)){c.fillStyle='#e1aa68';c.beginPath();c.arc(x(expP),y(expD),6,0,TAU);c.fill();}
   }
+  function syncMapDescription(){const c=state.catalogue;$('map-name').textContent=c.name;$('map-description').innerHTML=c.period_dot==null?`<strong>Katalog konumu yok.</strong> Ṗ kaydı bu aynada bulunmadığından gerçek nesne haritada gösterilemez. Deneyde Ṗ girerseniz yalnız deneysel konum görünür.`:`<strong>Katalog:</strong> P=${esc(c.period)} s, Ṗ=${esc(c.period_dot)} s/s.${state.mode==='experiment'?`<br><strong>Deney:</strong> P=${esc(raw(val('period')))} s, Ṗ=${esc(raw(val('period_dot')))} s/s. Katalog noktası korunur.`:''}`;}
+  function syncDispersion(){if(val('dm')===null){$('dispersion-result').textContent='DM katalogda yok. Deneyde bir DM girerek yayılımı sınayın.';return;}const s=state.observation,lo=s.centreMHz-s.bandwidthMHz/2,hi=s.centreMHz+s.bandwidthMHz/2,dt=Physics.dispersionDelay(num('dm'),lo,hi);$('dispersion-result').textContent=dt===null?'Geçerli pozitif frekans ve bant genişliği seçin.':`${nf(lo,0)}–${nf(hi,0)} MHz boyunca gecikme: ${nf(dt,3)} ms. ${s.dedispersed?'Kanallar model gecikmesi çıkarılarak hizalandı.':'Düşük frekans daha geç ulaşıyor.'}`;}
+  function drawWaterfall(){const v=prepare('waterfall');if(!v)return;const{c,w,h}=v,s=state.observation,dm=num('dm'),lo=s.centreMHz-s.bandwidthMHz/2,hi=s.centreMHz+s.bandwidthMHz/2,m={l:52,r:18,t:20,b:40},pw=w-m.l-m.r,ph=h-m.t-m.b;if(!Number.isFinite(dm)||dm<0||lo<=0||hi<=lo)return;const span=Physics.dispersionDelay(dm,lo,hi)||0;for(let i=0;i<s.channels;i++){const freq=hi-(i+.5)/s.channels*(hi-lo),delay=Physics.dispersionDelay(dm,freq,hi)||0,center=s.dedispersed?.5:.16+(span?delay/span*.68:0),rowH=ph/s.channels;const grad=c.createLinearGradient(m.l,0,m.l+pw,0);for(let j=0;j<=16;j++){const t=j/16,intensity=Math.exp(-.5*((t-center)/.018)**2);grad.addColorStop(t,`rgba(${Math.round(24+120*intensity)},${Math.round(72+155*intensity)},${Math.round(90+142*intensity)},1)`);}c.fillStyle=grad;c.fillRect(m.l,m.t+i*rowH,pw,rowH+.4);if(i%4===0){c.fillStyle='#a8cad0';c.font='10px ui-monospace,monospace';c.fillText(`${nf(freq,0)}`,4,m.t+i*rowH+8);}}line(c,m.l,m.t+ph,m.l+pw,m.t+ph,'#567685');c.fillStyle='#a8cad0';c.font='10px ui-monospace,monospace';c.fillText(`0 ms`,m.l,h-13);c.fillText(`${nf(span,2)} ms yayılım`,Math.max(m.l,m.l+pw-115),h-13);}
+  const missions={lose:['Periyoda dokunmadan bakış açısını değiştir. Atımın kaybolduğu koşulu bul.','Görüş hattı iki ışın konisinin dışına çıktı. Dönme sürse de atım algılanmaz.'],find:['α, ζ ve ρ ilişkisini kullanarak yeniden atım üret.','Görüş hattı en az bir manyetik ışını kesiyor.'],fast:['Dönme frekansını 100 Hz üzerine çıkar. RLC nasıl değişir?','P küçülünce frekans artar, ışık silindiri yarıçapı azalır.'],dedispersion:['Yayılım ekranında kanalları hizalamadan önce ne olacağını tahmin et.','DM gecikmesi geri alınınca sentetik kanal darbeleri aynı zamana gelir.'],age:['Deneyde Ṗ değerini değiştir. Karakteristik yaş nasıl etkilenir?','τc=P/(2Ṗ); P sabitken Ṗ artarsa karakteristik yaş azalır. Bu doğrudan gerçek yaş değildir.']};
+  function missionPrompt(){$('mission-prompt').textContent=missions[$('mission-select').value][0];$('mission-result').hidden=true;}
+  function missionCheck(){if(!$('prediction').value.trim()){$('mission-result').textContent='Önce bir tahmin yaz; sonra sonucu karşılaştır.';$('mission-result').hidden=false;return;}const key=$('mission-select').value,done=key==='lose'?!visible():key==='find'?visible():key==='fast'?Physics.frequency(num('period'))>100:key==='dedispersion'?state.observation.dedispersed:state.mode==='experiment'&&state.experiment.period_dot!==undefined;$('mission-result').textContent=done?`Ne oldu? ${missions[key][1]}`:'Koşul henüz sağlanmadı. Parametreyi değiştirip yeniden dene.';$('mission-result').hidden=false;}
 
-  let previous = performance.now();
-  function frame(now) {
-    const delta = Math.max(0, now - previous);
-    previous = now;
-    if (model.running) model.cycles += delta / model.periodMs;
-    $("rotation-readout").textContent = nfmt(Math.floor(model.cycles), 0);
-    $("intensity-readout").textContent = nfmt(intensityAt(model.cycles) * 100, 0);
-    drawStage();drawTrace();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+  makeControls();$('population-count').textContent=nf(POPULATION.length,0);
+  document.querySelector('#page-ppdot .legend + .microcopy').textContent='Kesikli kılavuzlar: B=10⁸, 10¹², 10¹⁴ G; τc=10³, 10⁶, 10⁹ yıl. Milisaniye rengi P<30 ms kuralıdır. Ṗ yoksa nesne yerleştirilemez.';
+  for(const item of catalogue){const opt=document.createElement('option');opt.value=item.name;opt.textContent=`${name(item)}${item.name==='PSR J0534+2200'?' · Crab':item.name==='PSR J0835-4510'?' · Vela':''}`;$('pulsar-select').append(opt);}
+  $('pulsar-select').addEventListener('change',e=>selectObject(catalogue.find(o=>o.name===e.target.value)));
+  $('catalogue-mode').addEventListener('click',()=>{LabState.reset(state);sync();});
+  $('experiment-mode').addEventListener('click',()=>{state.mode='experiment';sync();});
+  $('reset').addEventListener('click',()=>{LabState.reset(state);sync();});
+  document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{state.tab=btn.dataset.tab;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('.tab-page').forEach(p=>p.hidden=p.id!==`page-${state.tab}`);requestAnimationFrame(drawAll);}));
+  $('toggle').addEventListener('click',()=>{state.playback.running=!state.playback.running;$('toggle').textContent=state.playback.running?'⏸':'▶';$('toggle').setAttribute('aria-label',state.playback.running?'Animasyonu duraklat':'Animasyonu oynat');});
+  $('step').addEventListener('click',()=>{state.playback.running=false;$('toggle').textContent='▶';state.playback.cycles+=1/24;drawDynamic();});
+  $('speed').addEventListener('change',e=>{state.playback.speed=Number(e.target.value);});
+  $('model-view').addEventListener('click',()=>{state.signalView='model';$('model-view').classList.add('active');$('observed-view').classList.remove('active');$('model-signal').hidden=false;$('observed-signal').hidden=true;drawAll();});
+  $('observed-view').addEventListener('click',()=>{state.signalView='observed';$('observed-view').classList.add('active');$('model-view').classList.remove('active');$('model-signal').hidden=true;$('observed-signal').hidden=false;});
+  $('dm-input').addEventListener('input',e=>{const value=Number(e.target.value);if(e.target.value!==''&&value>=0&&value<=1000&&LabState.setExperiment(state,'dm',value)){state.observation.dedispersed=false;syncMode();syncSummary();drawAll();$('dm-badge').textContent='DENEY';$('dm-badge').className='badge experiment';}});
+  $('dm-input').addEventListener('change',e=>{const value=Number(e.target.value);if(e.target.value!==''&&value>=0&&value<=1000&&LabState.setExperiment(state,'dm',value)){state.observation.dedispersed=false;sync();}else sync();});
+  for(const [id,key] of [['centre-input','centreMHz'],['bandwidth-input','bandwidthMHz'],['channels-input','channels']])$(id).addEventListener('change',e=>{const n=Number(e.target.value);if(!Number.isFinite(n)||n<=0||key==='bandwidthMHz'&&n>=2*state.observation.centreMHz||key==='centreMHz'&&n<=state.observation.bandwidthMHz/2){e.target.value=state.observation[key];return;}state.observation[key]=n;state.observation.dedispersed=false;syncDispersion();drawWaterfall();});
+  $('dedisperse').addEventListener('click',()=>{state.observation.dedispersed=true;syncDispersion();drawWaterfall();});
+  $('restore-dispersion').addEventListener('click',()=>{state.observation.dedispersed=false;syncDispersion();drawWaterfall();});
+  $('mission-select').addEventListener('change',missionPrompt);$('mission-check').addEventListener('click',missionCheck);missionPrompt();
+  $('ppdot').addEventListener('mousemove',e=>{const box=e.target.getBoundingClientRect(),x=e.clientX-box.left,y=e.clientY-box.top;let nearest=null,best=8;for(const p of plotted){const d=Math.hypot(p.x-x,p.y-y);if(d<best){best=d;nearest=p;}}const tip=$('map-tooltip');tip.hidden=!nearest;if(nearest){tip.textContent=nearest.name;tip.style.left=`${Math.min(x+24,box.width-145)}px`;tip.style.top=`${Math.max(0,y-25)}px`;}});
+  $('ppdot').addEventListener('mouseleave',()=>$('map-tooltip').hidden=true);
+  $('ppdot').addEventListener('click',e=>{const box=e.target.getBoundingClientRect(),x=e.clientX-box.left,y=e.clientY-box.top;let closest=null,best=12;for(const item of catalogue){const p=plotted.find(a=>a.name===item.name);if(p){const d=Math.hypot(p.x-x,p.y-y);if(d<best){best=d;closest=item;}}}if(closest)selectObject(closest);});
+  new ResizeObserver(()=>drawAll()).observe(document.querySelector('.app'));
+  sync();$('toggle').textContent=state.playback.running?'⏸':'▶';
+  let previous=performance.now();function frame(now){const delta=Math.min(100,Math.max(0,now-previous));previous=now;if(state.playback.running)state.playback.cycles+=delta/1000/num('period')*state.playback.speed;drawDynamic();requestAnimationFrame(frame);}requestAnimationFrame(frame);
 })();
